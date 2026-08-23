@@ -27,11 +27,8 @@ class PlaybackPersistence(private val appContext: Context) {
      * History for playlist top-sorting.
      */
     fun recordPlayedMedia(mediaId: String) {
-        val history = getPlaybackHistory().toMutableList()
-        history.remove(mediaId)
-        history.add(0, mediaId)
-        val limitedHistory = if (history.size > 100) history.take(100) else history
-        prefs.edit { putString("playback_history", limitedHistory.joinToString("|")) }
+        val updated = normalizeHistory(getPlaybackHistory(), mediaId)
+        prefs.edit { putString("playback_history", updated.joinToString("|")) }
         
         // Also strictly save as the "ID 0" last clicked marker
         saveLastPlayedIdAsZero(mediaId)
@@ -66,4 +63,21 @@ class PlaybackPersistence(private val appContext: Context) {
     }
 
     fun getThemeColor(): Long = prefs.getLong("theme_color", 0xFFB7E4C7) // 默认香草绿
+
+    companion object {
+        /** 播放历史最大保留条数 */
+        const val MAX_HISTORY = 100
+
+        /**
+         * 计算新的播放历史：把 [newMediaId] 置顶，去重，并截断到 [MAX_HISTORY] 条。
+         * 纯函数，便于单元测试。
+         */
+        fun normalizeHistory(current: List<String>, newMediaId: String): List<String> {
+            val history = current
+                .filter { it.isNotBlank() && it != newMediaId }
+                .toMutableList()
+            history.add(0, newMediaId)
+            return if (history.size > MAX_HISTORY) history.take(MAX_HISTORY) else history
+        }
+    }
 }

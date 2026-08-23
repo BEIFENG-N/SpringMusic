@@ -12,6 +12,7 @@
     <uses-feature android:name="android.hardware.type.watch" />
 
     <application
+        android:name=".LXNApplication"
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher"

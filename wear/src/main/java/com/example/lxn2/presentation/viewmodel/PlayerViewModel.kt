@@ -1,17 +1,5 @@
 package com.example.lxn2.presentation.viewmodel
 
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
-import com.google.android.horologist.annotations.ExperimentalHorologistApi
-import com.google.android.horologist.media.repository.PlayerRepository
-import com.google.android.horologist.media.ui.state.PlayerViewModel
-
-@OptIn(ExperimentalHorologistApi::class)
-class PlayerViewModelFactory(
-    private val playerRepository: PlayerRepository
-) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return PlayerViewModel(playerRepository) as T
-    }
-}
+// PlayerViewModel 直接使用 com.google.android.horologist.media.ui.state.PlayerViewModel，
+// 其创建逻辑已迁移至 com.example.lxn2.di.AppContainer#createPlayerViewModel。
+// 此文件保留为空（避免破坏已有引用时误删）。

@@ -18,13 +18,12 @@ data class LyricLine(val timeMs: Long, val text: String)
 
 class MediaRepository(private val appContext: Context) {
     private val client = OkHttpClient()
-    private val cacheFile = "music_cache_v5.txt" // 升级到 v5 以包含封面信息
+    private val cacheFile = MediaCacheCodec.CACHE_FILE // v6 JSON 缓存（含封面信息）
 
     /**
      * Loads music from internal cache file. Extremely fast.
      */
     fun getCachedMusic(): List<MediaItem> {
-        val musicList = mutableListOf<MediaItem>()
         try {
             val file = File(appContext.filesDir, cacheFile)
             if (!file.exists()) {
@@ -32,34 +31,14 @@ class MediaRepository(private val appContext: Context) {
                 return emptyList()
             }
 
-            file.readLines().forEach { line ->
-                val parts = line.split("|")
-                if (parts.size >= 5) {
-                    val id = parts[0]
-                    val title = parts[1]
-                    val artist = parts[2]
-                    val album = parts[3]
-                    val path = parts[4]
-                    val artworkUri = if (parts.size >= 6) parts[5] else null
-                    
-                    musicList.add(
-                        createMediaItem(
-                            id = id, 
-                            title = title, 
-                            artist = artist, 
-                            album = album, 
-                            uri = Uri.fromFile(File(path)).toString(), 
-                            filePath = path,
-                            artworkUri = artworkUri
-                        )
-                    )
-                }
-            }
+            val content = file.readText()
+            val musicList = MediaCacheCodec.decode(content)
             Log.d("LXN", "Repository: Loaded ${musicList.size} items from cache.")
+            return musicList
         } catch (e: Exception) {
             Log.e("LXN", "Repository: Cache load error", e)
+            return emptyList()
         }
-        return musicList
     }
 
     /**
@@ -85,7 +64,6 @@ class MediaRepository(private val appContext: Context) {
             return emptyList()
         }
 
-        val cacheData = StringBuilder()
         val coversDir = File(appContext.cacheDir, "covers")
         if (!coversDir.exists()) coversDir.mkdirs()
 
@@ -121,8 +99,6 @@ class MediaRepository(private val appContext: Context) {
                 Log.e("LXN", "Tag read error for ${file.name}", e)
             }
 
-            cacheData.append("$numericId|$title|$artist|$album|${file.absolutePath}|${artworkPath ?: ""}\n")
-
             musicList.add(
                 createMediaItem(
                     id = numericId, 
@@ -137,8 +113,8 @@ class MediaRepository(private val appContext: Context) {
             onProgress(index + 1, total)
         }
         
-        // 3. Save the definitive A-Z indexed cache
-        saveCache(cacheData.toString())
+        // 3. Save the definitive A-Z indexed cache (v6 JSON)
+        saveCache(MediaCacheCodec.encode(musicList))
         
         return musicList
     }
@@ -212,7 +188,7 @@ class MediaRepository(private val appContext: Context) {
                     val tag = audioFile.tag ?: return emptyList()
                     val rawLyrics = tag.getFirst(FieldKey.LYRICS)
                     if (!rawLyrics.isNullOrBlank()) {
-                        return parseLrc(rawLyrics)
+                        return LyricsParser.parse(rawLyrics)
                     }
                 } catch (e: Exception) {
                     Log.e("LXN", "Local lyric error", e)
@@ -231,7 +207,7 @@ class MediaRepository(private val appContext: Context) {
                     val json = JSONObject(response.body?.string() ?: "{}")
                     val lrc = json.optJSONObject("lrc")?.optString("lyric")
                     if (!lrc.isNullOrBlank()) {
-                        parseLrc(lrc)
+                        LyricsParser.parse(lrc)
                     } else {
                         emptyList()
                     }
@@ -245,23 +221,6 @@ class MediaRepository(private val appContext: Context) {
         return emptyList()
     }
 
-    private fun parseLrc(lrcContent: String): List<LyricLine> {
-        val lyrics = mutableListOf<LyricLine>()
-        val timeRegex = "\\[(\\d{2}):(\\d{2})\\.(\\d{2,3})]".toRegex()
-        lrcContent.lines().forEach { line ->
-            val matchResult = timeRegex.find(line)
-            if (matchResult != null) {
-                val min = matchResult.groupValues[1].toLong()
-                val sec = matchResult.groupValues[2].toLong()
-                val msStr = matchResult.groupValues[3]
-                val ms = if (msStr.length == 2) msStr.toLong() * 10 else msStr.toLong()
-                val totalTimeMs = (min * 60 + sec) * 1000 + ms
-                val text = line.replace(timeRegex, "").trim()
-                if (text.isNotEmpty()) lyrics.add(LyricLine(totalTimeMs, text))
-            }
-        }
-        return lyrics.sortedBy { it.timeMs }
-    }
 
     fun getAllMusic(customPath: String? = null): List<MediaItem> {
         return getCachedMusic()

@@ -8,8 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.example.lxn2.data.MediaRepository
-import com.example.lxn2.data.PlaybackPersistence
+import com.example.lxn2.LXNApplication
 import com.example.lxn2.service.PlaybackService
 import com.google.android.horologist.annotations.ExperimentalHorologistApi
 import com.google.android.horologist.media.data.repository.PlayerRepositoryImpl
@@ -47,8 +46,9 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
 
     private var timerJob: kotlinx.coroutines.Job? = null
 
-    private val persistence = PlaybackPersistence(application)
-    private val repository = MediaRepository(application)
+    private val container = (application as LXNApplication).container
+    private val persistence = container.playbackPersistence
+    private val repository = container.mediaRepository
 
     init {
         connect()
