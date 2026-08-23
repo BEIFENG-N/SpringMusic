@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,8 +61,9 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -71,8 +73,6 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material.icons.rounded.Home
@@ -98,9 +98,14 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -110,10 +115,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.graphics.shapes.CornerRounding
+import androidx.graphics.shapes.RoundedPolygon
+import androidx.graphics.shapes.star
+import androidx.graphics.shapes.toPath
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
@@ -641,7 +652,7 @@ fun CustomMediaControlButtons(
 
         // 2. 播放/暂停按钮容器
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(64.dp)) {
-            // 核心按钮部分：恢复为正圆形，并与侧边按钮风格一致（暗色背景 + 亮色图标）
+            // 核心播放按钮：恢复为之前的 52dp 实色风格
             Box(
                 modifier = Modifier
                     .size(52.dp) 
@@ -672,6 +683,28 @@ fun CustomMediaControlButtons(
         ) {
             Icon(Icons.Rounded.SkipNext, contentDescription = "下一首", modifier = Modifier.size(24.dp))
         }
+    }
+}
+
+// 简单的波浪形状，用于音量小图标
+class SquigglyBadgeShape : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val polygon = RoundedPolygon.star(
+            numVerticesPerRadius = 12,
+            innerRadius = 0.82f,
+            rounding = CornerRounding(0.18f)
+        )
+        val matrix = android.graphics.Matrix()
+        matrix.postRotate(-90f)
+        matrix.postScale(size.width / 2f, size.height / 2f)
+        matrix.postTranslate(size.width / 2f, size.height / 2f)
+        val path = polygon.toPath().asComposePath()
+        path.asAndroidPath().transform(matrix)
+        return Outline.Generic(path)
     }
 }
 
@@ -744,48 +777,87 @@ fun PlayerUI(
                 },
                 buttons = {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
-                            onClick = onOutputClick,
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.VolumeUp,
-                                contentDescription = "音量",
-                                modifier = Modifier.size(24.dp)
-                            )
+                        // 左侧按钮：输出选择 (药丸型)
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            Box(
+                                modifier = Modifier
+                                    .width(54.dp)
+                                    .height(32.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                                    .clickable { onOutputClick() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Headphones,
+                                    contentDescription = "输出",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                            
+                            // 波浪形音量小角标
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = 4.dp, y = (-2).dp)
+                                    .size(18.dp)
+                                    .clip(SquigglyBadgeShape()) 
+                                    .background(MaterialTheme.colorScheme.primary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.VolumeUp,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(10.dp),
+                                    tint = Color.Black
+                                )
+                            }
                         }
                         
-                        Spacer(modifier = Modifier.width(16.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
 
-                        IconButton(
-                            onClick = {
-                                controller?.let {
-                                    when {
-                                        shuffleEnabled -> {
-                                            it.repeatMode = Player.REPEAT_MODE_ALL
-                                            it.shuffleModeEnabled = false
-                                        }
-                                        repeatMode == Player.REPEAT_MODE_ONE -> {
-                                            it.repeatMode = Player.REPEAT_MODE_ALL
-                                            it.shuffleModeEnabled = true
-                                        }
-                                        else -> {
-                                            it.repeatMode = Player.REPEAT_MODE_ONE
-                                            it.shuffleModeEnabled = false
+                        // 右侧按钮：播放模式切换 (药丸型)
+                        Box(
+                            modifier = Modifier
+                                .width(54.dp)
+                                .height(32.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.secondaryContainer)
+                                .clickable {
+                                    controller?.let {
+                                        when {
+                                            shuffleEnabled -> {
+                                                it.repeatMode = Player.REPEAT_MODE_ALL
+                                                it.shuffleModeEnabled = false
+                                            }
+                                            repeatMode == Player.REPEAT_MODE_ONE -> {
+                                                it.repeatMode = Player.REPEAT_MODE_ALL
+                                                it.shuffleModeEnabled = true
+                                            }
+                                            else -> {
+                                                it.repeatMode = Player.REPEAT_MODE_ONE
+                                                it.shuffleModeEnabled = false
+                                            }
                                         }
                                     }
-                                }
-                            }
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            val icon = when {
+                            val modeIcon = when {
                                 shuffleEnabled -> Icons.Default.Shuffle
                                 repeatMode == Player.REPEAT_MODE_ONE -> Icons.Default.RepeatOne
                                 else -> Icons.Default.Repeat
                             }
-                            Icon(icon, contentDescription = "播放模式")
+                            Icon(
+                                modeIcon, 
+                                contentDescription = "播放模式", 
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
                         }
                     }
                 },
@@ -1121,9 +1193,9 @@ fun SearchScreen(controller: MediaController?, onDismiss: () -> Unit) {
                     val searchUrl = "http://search.kuwo.cn/r.s?client=kt&all=$encodedKeyword&pn=0&rn=20&uid=794762570&ver=kwplayer_ar_9.2.2.1&vipver=1&show_copyright_off=1&newver=1&ft=music&encoding=utf8&rformat=json&mobi=1"
                     
                     val request = Request.Builder().url(searchUrl).build()
-                    val resp = client.newCall(request).execute().body?.string()
+                    val resp = client.newCall(request).execute().body.string()
                     
-                    val cleanJson = resp?.replace("'", "\"") ?: "{}"
+                    val cleanJson = resp.replace("'", "\"")
                     val json = JSONObject(cleanJson)
                     val songs = json.optJSONArray("abslist")
                     val list = mutableListOf<MediaItem>()
@@ -1158,8 +1230,8 @@ fun SearchScreen(controller: MediaController?, onDismiss: () -> Unit) {
                     try {
                         val searchUrl = "https://music.163.com/api/search/get/web?s=$keyword&type=1&limit=20"
                         val request = Request.Builder().url(searchUrl).build()
-                        val resp = client.newCall(request).execute().body?.string()
-                        val json = JSONObject(resp ?: "{}")
+                        val resp = client.newCall(request).execute().body.string()
+                        val json = JSONObject(resp)
                         val songs = json.optJSONObject("result")?.optJSONArray("songs")
                         val list = mutableListOf<MediaItem>()
                         if (songs != null) {
@@ -1277,8 +1349,8 @@ fun SearchScreen(controller: MediaController?, onDismiss: () -> Unit) {
                                 val scope = CoroutineScope(Dispatchers.IO)
                                 scope.launch {
                                     try {
-                                        val resp = client.newCall(Request.Builder().url(playApiUrl).build()).execute().body?.string()
-                                        if (!resp.isNullOrBlank() && resp.startsWith("http")) {
+                                        val resp = client.newCall(Request.Builder().url(playApiUrl).build()).execute().body.string()
+                                        if (resp.startsWith("http")) {
                                             withContext(Dispatchers.Main) {
                                                 controller?.let {
                                                     val finalSong = song.buildUpon().setUri(resp.toUri()).build()
