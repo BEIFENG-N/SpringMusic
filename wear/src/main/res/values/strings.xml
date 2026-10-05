@@ -1,4 +1,61 @@
 <resources>
     <string name="app_name">SpringMusic</string>
-    <string name="hello_world">Hello, %1$s!</string>
+
+    <!-- 播放器界面 -->
+    <string name="btn_skip_previous">上一首</string>
+    <string name="btn_play_pause">播放暂停</string>
+    <string name="btn_skip_next">下一首</string>
+    <string name="btn_output_device">输出</string>
+    <string name="btn_play_mode">播放模式</string>
+    <string name="no_song_playing">无歌曲播放</string>
+    <string name="please_scan_local_music">请扫描本地音乐</string>
+    <string name="lyrics_title">歌词</string>
+    <string name="no_lyrics">暂无歌词</string>
+    <string name="lyrics_disabled">歌词功能已禁用</string>
+    <string name="playback_controls">播放控件</string>
+    <string name="decrease_volume">减小音量</string>
+    <string name="increase_volume">增大音量</string>
+    <string name="connect_device">连接设备</string>
+    <string name="this_watch">这只手表</string>
+    <string name="temp_playlist_title">稍后播放</string>
+    <string name="temp_playlist_empty">稍后播放列表为空</string>
+    <string name="clear_temp_playlist">清空稍后播放</string>
+
+    <!-- 媒体库界面 -->
+    <string name="library_title">库</string>
+    <string name="library_temp_playlist">稍后播放</string>
+    <string name="library_playlist">歌单</string>
+    <string name="library_artists">艺人</string>
+    <string name="library_albums">专辑</string>
+    <string name="playlist_empty_hint">列表为空，请先扫描音乐</string>
+    <string name="search_title">搜索</string>
+    <string name="no_artists">暂无艺人信息</string>
+    <string name="no_albums">暂无专辑信息</string>
+    <string name="unknown_track">未知曲目</string>
+    <string name="unknown_artist">未知歌手</string>
+    <string name="unknown_album">未知专辑</string>
+
+    <!-- 设置界面 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_scan_music">扫描本地音乐</string>
+    <string name="settings_player">播放设置</string>
+    <string name="settings_source">音源管理</string>
+    <string name="settings_lyrics">歌词设置</string>
+    <string name="settings_app_interface">应用界面</string>
+    <string name="settings_theme">应用主题</string>
+    <string name="settings_scale">缩放</string>
+    <string name="settings_display_effect">显示效果</string>
+    <string name="settings_theme_color">主题色</string>
+    <string name="settings_pick_color">选择颜色</string>
+    <string name="settings_auto_clean_played">自动清理已播放列表</string>
+    <string name="settings_add_music_location">歌单插入位置 (顶部/底部)</string>
+    <string name="settings_detect_embedded_lyrics">检测歌曲内嵌歌词</string>
+    <string name="settings_background_blur">背景模糊</string>
+    <string name="settings_cache_management">缓存管理</string>
+    <string name="cache_used_size">已用缓存: %1$.1f MB</string>
+    <string name="btn_clear_cache">一键清理缓存</string>
+    <string name="cache_cleared_toast">缓存清理成功</string>
+
+    <!-- 播放错误提示 -->
+    <string name="playback_error_msg">播放失败，文件不存在或网络异常</string>
 </resources>

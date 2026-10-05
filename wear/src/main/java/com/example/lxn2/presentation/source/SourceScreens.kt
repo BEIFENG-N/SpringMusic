@@ -1,6 +1,5 @@
 package com.example.lxn2.presentation.source
 
-import android.Manifest
 import android.os.Environment
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,18 +11,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,6 +37,7 @@ import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
 import com.example.lxn2.data.PlaybackPersistence
+import com.example.lxn2.permission.PermissionManager
 import com.example.lxn2.presentation.components.fadingEdge
 import java.io.File
 
@@ -81,19 +82,17 @@ fun SourceManagementScreen(persistence: PlaybackPersistence, onAddSourceClick: (
 @Composable
 fun JsFilePickerScreen(onFileSelected: (File) -> Unit) {
     var currentDir by remember { mutableStateOf(Environment.getExternalStorageDirectory()) }
-    
+
+    // 不再自动弹权限，仅以当前状态决定是否显示目录与引导入口。
     var hasPermission by remember {
-        mutableStateOf(Environment.isExternalStorageManager())
+        mutableStateOf(PermissionManager.canAccessMusicStorage())
     }
 
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        hasPermission = isGranted
-    }
-
-    LaunchedEffect(Unit) {
-        if (!hasPermission) {
-            launcher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
+    val appContext = LocalContext.current
+    val settingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        hasPermission = PermissionManager.canAccessMusicStorage()
     }
 
     val entries = remember(currentDir, hasPermission) { 
@@ -114,7 +113,14 @@ fun JsFilePickerScreen(onFileSelected: (File) -> Unit) {
             
             if (!hasPermission) {
                 item {
-                    Text("请在系统设置中授予\"所有文件访问权限\"", style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                    Text(PermissionManager.permissionHint(), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                }
+                item {
+                    FilledTonalButton(
+                        onClick = { settingsLauncher.launch(PermissionManager.buildAllFilesIntent(appContext)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("去授权") }
+                    )
                 }
             }
 
@@ -144,6 +150,18 @@ fun JsFilePickerScreen(onFileSelected: (File) -> Unit) {
 @Composable
 fun LocalMusicScanMenuScreen(currentPath: String?, onCustomPathClick: () -> Unit, onScanClick: () -> Unit) {
     val columnState = rememberScalingLazyListState()
+    val appContext = LocalContext.current
+
+    // 不做自动跳转；仅在未授权时展示一个手动“去授权”入口。
+    var hasPermission by remember {
+        mutableStateOf(PermissionManager.canAccessMusicStorage())
+    }
+    val settingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        hasPermission = PermissionManager.canAccessMusicStorage()
+    }
+
     ScreenScaffold(scrollState = columnState) {
         ScalingLazyColumn(
             modifier = Modifier.fillMaxSize().fadingEdge(),
@@ -151,6 +169,19 @@ fun LocalMusicScanMenuScreen(currentPath: String?, onCustomPathClick: () -> Unit
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 20.dp)
         ) {
             item { ListHeader { Text("本地音乐扫描") } }
+            if (!hasPermission) {
+                item {
+                    Text(PermissionManager.permissionHint(), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                }
+                item {
+                    FilledTonalButton(
+                        onClick = { settingsLauncher.launch(PermissionManager.buildAllFilesIntent(appContext)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("去授权") },
+                        icon = { Icon(Icons.Default.Settings, null, tint = MaterialTheme.colorScheme.primary) }
+                    )
+                }
+            }
             item { 
                 FilledTonalButton(
                     onClick = onCustomPathClick,
@@ -167,7 +198,7 @@ fun LocalMusicScanMenuScreen(currentPath: String?, onCustomPathClick: () -> Unit
             item { 
                 FilledTonalButton(
                     onClick = { onScanClick() },
-                    enabled = currentPath != null, 
+                    enabled = currentPath != null && hasPermission, 
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("加载音乐文件") },
                     icon = { Icon(Icons.Default.Refresh, null, tint = MaterialTheme.colorScheme.primary) }

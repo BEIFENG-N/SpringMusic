@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalHorologistApi::class)
+@file:OptIn(ExperimentalHorologistApi::class, ExperimentalFoundationApi::class)
 package com.example.lxn2.presentation.library
 
 import android.app.Activity
@@ -7,6 +7,9 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,23 +21,36 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.example.lxn2.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,9 +69,13 @@ import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
+import androidx.wear.compose.material3.ScrollIndicator
 import androidx.wear.compose.material3.Text
+import com.example.lxn2.LXNApplication
+import com.example.lxn2.data.AppConstants
 import com.example.lxn2.data.MediaRepository
 import com.example.lxn2.data.PlaybackPersistence
+import com.example.lxn2.data.source.MusicSourceEngine
 import com.example.lxn2.presentation.components.fadingEdge
 import com.google.android.horologist.annotations.ExperimentalHorologistApi
 import com.google.android.horologist.composables.MarqueeText
@@ -63,57 +83,63 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONObject
+import org.json.JSONArray
 
 @Composable
-fun LibraryScreen(onLocalMusicClick: () -> Unit, onArtistsClick: () -> Unit, onAlbumsClick: () -> Unit) {
+fun LibraryScreen(
+    onLocalMusicClick: () -> Unit,
+    onTempPlayListClick: () -> Unit,
+    onArtistsClick: () -> Unit,
+    onAlbumsClick: () -> Unit
+) {
     val columnState = rememberScalingLazyListState()
-    ScreenScaffold(scrollState = columnState) {
+    ScreenScaffold(
+        scrollState = columnState,
+        scrollIndicator = { ScrollIndicator(columnState) }
+    ) {
         ScalingLazyColumn(
             modifier = Modifier.fillMaxSize().fadingEdge(),
             state = columnState,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 30.dp)
         ) {
-            item { ListHeader { Text("库") } }
+            item { ListHeader { Text(stringResource(R.string.library_title)) } }
             
-            // 1. 下载 (Download)
+            // 1. 稍后播放
             item {
                 FilledTonalButton(
-                    onClick = { /* TODO */ },
+                    onClick = onTempPlayListClick,
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("下载") },
-                    icon = { Icon(Icons.Default.Download, null, modifier = Modifier.size(24.dp)) }
+                    label = { Text(stringResource(R.string.library_temp_playlist)) },
+                    icon = { Icon(Icons.Default.Schedule, null, modifier = Modifier.size(24.dp)) }
                 )
             }
 
-            // 2. 歌单 (Playlist)
+            // 2. 歌单
             item {
                 FilledTonalButton(
                     onClick = onLocalMusicClick,
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("歌单") },
+                    label = { Text(stringResource(R.string.library_playlist)) },
                     icon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, null, modifier = Modifier.size(24.dp)) }
                 )
             }
 
-            // 3. 艺人 (Artist)
+            // 3. 艺人
             item {
                 FilledTonalButton(
                     onClick = onArtistsClick,
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("艺人") },
+                    label = { Text(stringResource(R.string.library_artists)) },
                     icon = { Icon(Icons.Default.Person, null, modifier = Modifier.size(24.dp)) }
                 )
             }
 
-            // 4. 专辑 (Album)
+            // 4. 专辑
             item {
                 FilledTonalButton(
                     onClick = onAlbumsClick,
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("专辑") },
+                    label = { Text(stringResource(R.string.library_albums)) },
                     icon = { Icon(Icons.Default.Album, null, modifier = Modifier.size(24.dp)) }
                 )
             }
@@ -122,94 +148,284 @@ fun LibraryScreen(onLocalMusicClick: () -> Unit, onArtistsClick: () -> Unit, onA
 }
 
 @Composable
-fun PlaylistScreen(controller: MediaController?, persistence: PlaybackPersistence, onDismiss: () -> Unit) {
+fun SongListItem(
+    item: MediaItem,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                val unknownTrack = stringResource(R.string.unknown_track)
+                val unknownArtist = stringResource(R.string.unknown_artist)
+                if (isCurrent) {
+                    MarqueeText(
+                        text = item.mediaMetadata.title?.toString() ?: unknownTrack,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        marqueeDpPerSecond = 10.dp,
+                        edgeGradientWidth = 60.dp
+                    )
+                    MarqueeText(
+                        text = item.mediaMetadata.artist?.toString() ?: unknownArtist,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        marqueeDpPerSecond = 8.dp,
+                        edgeGradientWidth = 45.dp
+                    )
+                } else {
+                    Text(
+                        text = item.mediaMetadata.title?.toString() ?: unknownTrack,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = item.mediaMetadata.artist?.toString() ?: unknownArtist,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (isCurrent) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SongActionDialog(
+    mediaItem: MediaItem,
+    persistence: PlaybackPersistence,
+    controller: MediaController?,
+    onPlayNow: () -> Unit,
+    onDismiss: () -> Unit
+) {
     val columnState = rememberScalingLazyListState()
-    var mediaItems by remember { mutableStateOf(emptyList<MediaItem>()) }
-    fun updateList() {
-        val items = mutableListOf<MediaItem>()
-        controller?.let { for (i in 0 until it.mediaItemCount) items.add(it.getMediaItemAt(i)) }
-        mediaItems = items
-    }
-    DisposableEffect(controller) {
-        val listener = object : Player.Listener {
-            override fun onEvents(player: Player, events: Player.Events) {
-                if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_PLAYLIST_METADATA_CHANGED)) updateList()
-            }
-        }
-        controller?.addListener(listener)
-        updateList()
-        onDispose { controller?.removeListener(listener) }
-    }
-    val history = remember { persistence.getPlaybackHistory() }
-    val currentMediaId = controller?.currentMediaItem?.mediaId
-    val sortedItems = remember(mediaItems, history) {
-        mediaItems.distinctBy { it.mediaId }.sortedWith { a, b ->
-            val indexA = history.indexOf(a.mediaId)
-            val indexB = history.indexOf(b.mediaId)
-            when {
-                indexA != -1 && indexB != -1 -> indexA.compareTo(indexB)
-                indexA != -1 -> -1
-                indexB != -1 -> 1
-                else -> (a.mediaMetadata.title?.toString() ?: "").compareTo(b.mediaMetadata.title?.toString() ?: "")
-            }
-        }
-    }
-    ScreenScaffold(scrollState = columnState) {
+    var isFav by remember { mutableStateOf(persistence.isFavorite(mediaItem.mediaId)) }
+
+    ScreenScaffold(
+        scrollState = columnState,
+        scrollIndicator = { ScrollIndicator(columnState) }
+    ) {
         ScalingLazyColumn(
             modifier = Modifier.fillMaxSize().fadingEdge(),
             state = columnState,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 30.dp)
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 24.dp)
         ) {
-            item { ListHeader { Text("播放列表") } }
-            if (sortedItems.isEmpty()) {
-                item { Text(text = "列表为空，请先扫描音乐", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
-            } else {
-                items(sortedItems) { item: MediaItem ->
-                    val isCurrent = item.mediaId == currentMediaId
-                    FilledTonalButton(
-                        onClick = {
-                            controller?.let {
-                                for (i in 0 until it.mediaItemCount) {
-                                    if (it.getMediaItemAt(i).mediaId == item.mediaId) { it.seekTo(i, 0L); it.play(); onDismiss(); break }
-                                }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    MarqueeText(
-                                        text = item.mediaMetadata.title?.toString() ?: "未知曲目",
-                                        style = MaterialTheme.typography.bodyLarge.copy(
-                                            fontWeight = FontWeight.Bold
-                                        ),
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        marqueeDpPerSecond = 10.dp,
-                                        edgeGradientWidth = 60.dp
-                                    )
-                                    MarqueeText(
-                                        text = item.mediaMetadata.artist?.toString() ?: "未知歌手",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        marqueeDpPerSecond = 8.dp,
-                                        edgeGradientWidth = 45.dp
-                                    )
-                                }
-                                if (isCurrent) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
+            item {
+                ListHeader {
+                    Text(
+                        text = mediaItem.mediaMetadata.title?.toString() ?: "曲目选项",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                }
+            }
+            item {
+                FilledTonalButton(
+                    onClick = {
+                        onPlayNow()
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("立即播放") },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                )
+            }
+            item {
+                FilledTonalButton(
+                    onClick = {
+                        com.example.lxn2.data.core.PlayerCore.addTempPlayList(listOf(mediaItem), controller)
+                        com.example.lxn2.data.core.PlayerCore.setStatusText("已添加到稍后播放")
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("稍后播放") },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                )
+            }
+            item {
+                FilledTonalButton(
+                    onClick = {
+                        isFav = persistence.toggleFavorite(mediaItem.mediaId)
+                        val msg = if (isFav) "已收藏" else "已取消收藏"
+                        com.example.lxn2.data.core.PlayerCore.setStatusText(msg)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(if (isFav) "取消收藏" else "收藏歌曲") },
+                    icon = {
+                        Icon(
+                            imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = null,
+                            tint = if (isFav) Color.Red else MaterialTheme.colorScheme.primary
+                        )
+                    }
+                )
+            }
+            item {
+                FilledTonalButton(
+                    onClick = {
+                        val title = mediaItem.mediaMetadata.title?.toString() ?: ""
+                        val singer = mediaItem.mediaMetadata.artist?.toString() ?: ""
+                        val updated = com.example.lxn2.data.core.PlayerCore.addDislike(title, singer)
+                        persistence.saveDislikeKeys(updated.compositeKeys)
+                        com.example.lxn2.data.core.PlayerCore.setStatusText("已加入不喜欢")
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("加入不喜欢") },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.ThumbDown,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                )
+            }
+            item {
+                FilledTonalButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    label = { Text("关闭") },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun PlaylistScreen(controller: MediaController?, persistence: PlaybackPersistence, onDismiss: () -> Unit) {
+    var actionSong by remember { mutableStateOf<MediaItem?>(null) }
+    if (actionSong != null) {
+        SongActionDialog(
+            mediaItem = actionSong!!,
+            persistence = persistence,
+            controller = controller,
+            onPlayNow = {
+                controller?.let {
+                    for (i in 0 until it.mediaItemCount) {
+                        if (it.getMediaItemAt(i).mediaId == actionSong!!.mediaId) {
+                            it.seekTo(i, 0L)
+                            it.play()
+                            onDismiss()
+                            break
+                        }
+                    }
+                }
+            },
+            onDismiss = { actionSong = null }
+        )
+    } else {
+        val columnState = rememberScalingLazyListState()
+        var mediaItems by remember { mutableStateOf(emptyList<MediaItem>()) }
+        fun updateList() {
+            val items = mutableListOf<MediaItem>()
+            controller?.let { for (i in 0 until it.mediaItemCount) items.add(it.getMediaItemAt(i)) }
+            mediaItems = items
+        }
+        DisposableEffect(controller) {
+            val listener = object : Player.Listener {
+                override fun onEvents(player: Player, events: Player.Events) {
+                    if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_PLAYLIST_METADATA_CHANGED)) updateList()
+                }
+            }
+            controller?.addListener(listener)
+            updateList()
+            onDispose { controller?.removeListener(listener) }
+        }
+        val history = remember { persistence.getPlaybackHistory() }
+        val currentMediaId = controller?.currentMediaItem?.mediaId
+        val sortedItems = remember(mediaItems, history) {
+            mediaItems.distinctBy { it.mediaId }.sortedWith { a, b ->
+                val indexA = history.indexOf(a.mediaId)
+                val indexB = history.indexOf(b.mediaId)
+                when {
+                    indexA != -1 && indexB != -1 -> indexA.compareTo(indexB)
+                    indexA != -1 -> -1
+                    indexB != -1 -> 1
+                    else -> (a.mediaMetadata.title?.toString() ?: "").compareTo(b.mediaMetadata.title?.toString() ?: "")
+                }
+            }
+        }
+        ScreenScaffold(
+            scrollState = columnState,
+            scrollIndicator = { ScrollIndicator(columnState) }
+        ) {
+            ScalingLazyColumn(
+                modifier = Modifier.fillMaxSize().fadingEdge(),
+                state = columnState,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 30.dp)
+            ) {
+                item { ListHeader { Text(stringResource(R.string.library_playlist)) } }
+                if (sortedItems.isEmpty()) {
+                    item { Text(text = stringResource(R.string.playlist_empty_hint), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+                } else {
+                    items(sortedItems) { item: MediaItem ->
+                        val isCurrent = item.mediaId == currentMediaId
+                        SongListItem(
+                            item = item,
+                            isCurrent = isCurrent,
+                            onClick = {
+                                controller?.let {
+                                    for (i in 0 until it.mediaItemCount) {
+                                        if (it.getMediaItemAt(i).mediaId == item.mediaId) { it.seekTo(i, 0L); it.play(); onDismiss(); break }
+                                    }
+                                }
+                            },
+                            onLongClick = {
+                                actionSong = item
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -217,204 +433,231 @@ fun PlaylistScreen(controller: MediaController?, persistence: PlaybackPersistenc
 }
 
 @Composable
-fun SearchScreen(controller: MediaController?, onDismiss: () -> Unit) {
-    val appContext = LocalContext.current
-    val columnState = rememberScalingLazyListState()
-    val repository = remember { MediaRepository(appContext) }
-    
-    var keyword by remember { mutableStateOf("") }
-    var onlineResults by remember { mutableStateOf(emptyList<MediaItem>()) }
-    var localResults by remember { mutableStateOf(emptyList<MediaItem>()) }
-    var isSearching by remember { mutableStateOf(false) }
-
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val res = android.app.RemoteInput.getResultsFromIntent(result.data)
-            res?.getCharSequence("search_keyword")?.toString()?.let { keyword = it }
-        }
-    }
-
-    LaunchedEffect(keyword) {
-        if (keyword.isNotEmpty()) {
-            isSearching = true
-            onlineResults = emptyList()
-            
-            withContext(Dispatchers.IO) {
-                val allLocal = repository.getCachedMusic()
-                localResults = allLocal.filter {
-                    (it.mediaMetadata.title?.toString()?.contains(keyword, ignoreCase = true) == true) ||
-                    (it.mediaMetadata.artist?.toString()?.contains(keyword, ignoreCase = true) == true)
+fun SearchScreen(
+    controller: MediaController?,
+    persistence: PlaybackPersistence,
+    onDismiss: () -> Unit
+) {
+    var actionSong by remember { mutableStateOf<MediaItem?>(null) }
+    if (actionSong != null) {
+        SongActionDialog(
+            mediaItem = actionSong!!,
+            persistence = persistence,
+            controller = controller,
+            onPlayNow = {
+                controller?.let {
+                    var foundIndex = -1
+                    for (i in 0 until it.mediaItemCount) {
+                        if (it.getMediaItemAt(i).mediaId == actionSong!!.mediaId) { foundIndex = i; break }
+                    }
+                    if (foundIndex != -1) {
+                        it.seekTo(foundIndex, 0L)
+                    } else {
+                        it.addMediaItem(actionSong!!)
+                        it.seekTo(it.mediaItemCount - 1, 0L)
+                    }
+                    it.prepare()
+                    it.play()
+                    onDismiss()
                 }
-            }
+            },
+            onDismiss = { actionSong = null }
+        )
+    } else {
+        val appContext = LocalContext.current
+        val columnState = rememberScalingLazyListState()
+        val repository = remember { (appContext.applicationContext as LXNApplication).container.mediaRepository }
+        
+        var keyword by remember { mutableStateOf("") }
+        var currentPage by remember(keyword) { mutableIntStateOf(1) }
+        var onlineResults by remember { mutableStateOf(emptyList<MediaItem>()) }
+        var localResults by remember { mutableStateOf(emptyList<MediaItem>()) }
+        var isSearching by remember { mutableStateOf(false) }
+        var historyList by remember { mutableStateOf(persistence.getSearchHistory()) }
 
-            val client = OkHttpClient()
-            withContext(Dispatchers.IO) {
-                try {
-                    val encodedKeyword = java.net.URLEncoder.encode(keyword, "UTF-8")
-                    val searchUrl = "http://search.kuwo.cn/r.s?client=kt&all=$encodedKeyword&pn=0&rn=20&uid=794762570&ver=kwplayer_ar_9.2.2.1&vipver=1&show_copyright_off=1&newver=1&ft=music&encoding=utf8&rformat=json&mobi=1"
-                    
-                    val request = Request.Builder().url(searchUrl).build()
-                    val resp = client.newCall(request).execute().body.string()
-                    
-                    val cleanJson = resp.replace("'", "\"")
-                    val json = JSONObject(cleanJson)
-                    val songs = json.optJSONArray("abslist")
-                    val list = mutableListOf<MediaItem>()
-                    if (songs != null) {
-                        for (i in 0 until songs.length()) {
-                            val s = songs.getJSONObject(i)
-                            val songId = s.optString("MUSICRID").replace("MUSIC_", "")
-                            val artist = s.optString("ARTIST")
-                            val title = s.optString("SONGNAME")
+        val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val res = android.app.RemoteInput.getResultsFromIntent(result.data)
+                res?.getCharSequence("search_keyword")?.toString()?.let { keyword = it }
+            }
+        }
+
+        LaunchedEffect(keyword, currentPage) {
+            if (keyword.isNotEmpty()) {
+                // 500ms 搜索防抖节流
+                delay(500)
+
+                persistence.addSearchHistory(keyword)
+                historyList = persistence.getSearchHistory()
+                isSearching = true
+
+                if (currentPage == 1) {
+                    onlineResults = emptyList()
+                    withContext(Dispatchers.IO) {
+                        val allLocal = repository.getCachedMusic()
+                        localResults = allLocal.filter {
+                            (it.mediaMetadata.title?.toString()?.contains(keyword, ignoreCase = true) == true) ||
+                            (it.mediaMetadata.artist?.toString()?.contains(keyword, ignoreCase = true) == true)
+                        }
+                    }
+                }
+
+                withContext(Dispatchers.IO) {
+                    try {
+                        val searchResultJson = MusicSourceEngine.searchMusic(keyword, page = currentPage)
+                        
+                        val jsonArray = JSONArray(searchResultJson)
+                        val list = mutableListOf<MediaItem>()
+                        
+                        for (i in 0 until jsonArray.length()) {
+                            val s = jsonArray.getJSONObject(i)
+                            val songId = s.optString("id")
+                            val source = s.optString("source")
                             val metadata = MediaMetadata.Builder()
-                                .setTitle(title)
-                                .setArtist(artist)
-                                .setExtras(Bundle().apply { putString("origin", "ONLINE") })
+                                .setTitle(s.optString("title"))
+                                .setArtist(s.optString("artist"))
+                                .setExtras(Bundle().apply { 
+                                    putString("origin", "ONLINE")
+                                    putString("source", source)
+                                })
                                 .build()
-                            
-                            val playUrl = "http://antiserver.kuwo.cn/anti.s?format=mp3&rid=MUSIC_$songId&type=convert_url&response=url&bitrate=128"
-                            
+                                
                             list.add(
                                 MediaItem.Builder()
                                     .setMediaId(songId)
                                     .setMediaMetadata(metadata)
-                                    .setUri(playUrl.toUri())
+                                    .setUri("lxmusic://online?id=$songId&source=$source".toUri()) 
                                     .build()
                             )
                         }
-                    }
-                    withContext(Dispatchers.Main) {
-                        onlineResults = list
-                    }
-                } catch (e: Exception) { 
-                    Log.e("LXN", "Search Failed", e) 
-                    try {
-                        val searchUrl = "https://music.163.com/api/search/get/web?s=$keyword&type=1&limit=20"
-                        val request = Request.Builder().url(searchUrl).build()
-                        val resp = client.newCall(request).execute().body.string()
-                        val json = JSONObject(resp)
-                        val songs = json.optJSONObject("result")?.optJSONArray("songs")
-                        val list = mutableListOf<MediaItem>()
-                        if (songs != null) {
-                            for (i in 0 until songs.length()) {
-                                val s = songs.getJSONObject(i)
-                                val songId = s.optString("id")
-                                val artist = s.optJSONArray("artists")?.optJSONObject(0)?.optString("name") ?: "Unknown"
-                                val metadata = MediaMetadata.Builder()
-                                    .setTitle(s.optString("name"))
-                                    .setArtist(artist)
-                                    .setExtras(Bundle().apply { putString("origin", "ONLINE") })
-                                    .build()
-                                list.add(
-                                    MediaItem.Builder()
-                                        .setMediaId(songId)
-                                        .setMediaMetadata(metadata)
-                                        .setUri("https://music.163.com/song/media/outer/url?id=$songId.mp3".toUri())
-                                        .build()
-                                )
-                            }
+                        withContext(Dispatchers.Main) {
+                            onlineResults = if (currentPage == 1) list else onlineResults + list
                         }
-                        withContext(Dispatchers.Main) { onlineResults = list }
-                    } catch (e2: Exception) { Log.e("LXN", "Fallback Search Failed", e2) }
-                } finally { 
-                    isSearching = false 
+                    } catch (e: Exception) { 
+                        Log.e(AppConstants.LOG_TAG, "Search Failed via JS Engine", e) 
+                    } finally { 
+                        isSearching = false 
+                    }
                 }
             }
         }
-    }
 
-    ScreenScaffold(scrollState = columnState) {
-        ScalingLazyColumn(
-            modifier = Modifier.fillMaxSize().fadingEdge(),
-            state = columnState,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 30.dp)
+        ScreenScaffold(
+            scrollState = columnState,
+            scrollIndicator = { ScrollIndicator(columnState) }
         ) {
-            item { ListHeader { Text("搜索") } }
-            item { 
-                FilledTonalButton(
-                    onClick = {
-                        try {
-                            val intent = Intent("android.support.wearable.input.action.REMOTE_INPUT")
-                            val remoteInput = android.app.RemoteInput.Builder("search_keyword")
-                                .setLabel("输入歌曲或歌手")
-                                .build()
-                            intent.putExtra("android.support.wearable.input.extra.REMOTE_INPUTS", arrayOf(remoteInput))
-                            launcher.launch(intent)
-                        } catch (e: Exception) {
-                            Log.e("LXN", "Failed to launch remote input", e)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(keyword.ifEmpty { "点击输入" }) },
-                    icon = { Icon(Icons.Default.Keyboard, null) }
-                ) 
-            }
-            if (isSearching) {
+            ScalingLazyColumn(
+                modifier = Modifier.fillMaxSize().fadingEdge(),
+                state = columnState,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 30.dp)
+            ) {
+                item { ListHeader { Text(stringResource(R.string.search_title)) } }
                 item { 
-                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator() 
-                    }
-                }
-            } else if (keyword.isNotEmpty() && localResults.isEmpty() && onlineResults.isEmpty()) {
-                item {
-                    Text(
-                        text = "未找到相关歌曲",
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-
-            if (localResults.isNotEmpty()) {
-                item { ListHeader { Text("本地歌曲") } }
-                items(localResults) { song: MediaItem ->
                     FilledTonalButton(
                         onClick = {
-                            controller?.let {
-                                var foundIndex = -1
-                                for (i in 0 until it.mediaItemCount) {
-                                    if (it.getMediaItemAt(i).mediaId == song.mediaId) { foundIndex = i; break }
-                                }
-                                if (foundIndex != -1) {
-                                    it.seekTo(foundIndex, 0L)
-                                } else {
-                                    it.addMediaItem(song)
-                                    it.seekTo(it.mediaItemCount - 1, 0L)
-                                }
-                                it.prepare()
-                                it.play()
+                            try {
+                                val intent = Intent("android.support.wearable.input.action.REMOTE_INPUT")
+                                val remoteInput = android.app.RemoteInput.Builder("search_keyword")
+                                    .setLabel("输入歌曲或歌手")
+                                    .build()
+                                intent.putExtra("android.support.wearable.input.extra.REMOTE_INPUTS", arrayOf(remoteInput))
+                                launcher.launch(intent)
+                            } catch (e: Exception) {
+                                Log.e("LXN", "Failed to launch remote input", e)
                             }
-                            onDismiss()
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        label = {
-                            Column {
-                                Text(song.mediaMetadata.title.toString(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(song.mediaMetadata.artist.toString(), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    )
+                        label = { Text(keyword.ifEmpty { "点击输入" }) },
+                        icon = { Icon(Icons.Default.Keyboard, null) }
+                    ) 
                 }
-                item { Spacer(modifier = Modifier.height(16.dp)) }
-            }
+                if (keyword.isEmpty() && historyList.isNotEmpty()) {
+                    item { ListHeader { Text("搜索历史") } }
+                    items(historyList) { hist ->
+                        FilledTonalButton(
+                            onClick = { keyword = hist },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            label = { Text(hist, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        )
+                    }
+                    item {
+                        FilledTonalButton(
+                            onClick = {
+                                persistence.clearSearchHistory()
+                                historyList = emptyList()
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            label = { Text("清空搜索历史") }
+                        )
+                    }
+                }
+                if (isSearching) {
+                    item { 
+                        Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator() 
+                        }
+                    }
+                } else if (keyword.isNotEmpty() && localResults.isEmpty() && onlineResults.isEmpty()) {
+                    item {
+                        Text(
+                            text = "未找到相关歌曲",
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
 
-            if (onlineResults.isNotEmpty()) {
-                item { ListHeader { Text("在线歌曲") } }
-                items(onlineResults) { song: MediaItem ->
-                    FilledTonalButton(
-                        onClick = {
-                            val playApiUrl = song.localConfiguration?.uri?.toString() ?: ""
-                            if (playApiUrl.contains("kuwo.cn")) {
-                                val client = OkHttpClient()
+                if (localResults.isNotEmpty()) {
+                    item { ListHeader { Text("本地歌曲") } }
+                    items(localResults) { song: MediaItem ->
+                        val isCurrent = song.mediaId == controller?.currentMediaItem?.mediaId
+                        SongListItem(
+                            item = song,
+                            isCurrent = isCurrent,
+                            onClick = {
+                                controller?.let {
+                                    var foundIndex = -1
+                                    for (i in 0 until it.mediaItemCount) {
+                                        if (it.getMediaItemAt(i).mediaId == song.mediaId) { foundIndex = i; break }
+                                    }
+                                    if (foundIndex != -1) {
+                                        it.seekTo(foundIndex, 0L)
+                                    } else {
+                                        it.addMediaItem(song)
+                                        it.seekTo(it.mediaItemCount - 1, 0L)
+                                    }
+                                    it.prepare()
+                                    it.play()
+                                }
+                                onDismiss()
+                            },
+                            onLongClick = {
+                                actionSong = song
+                            }
+                        )
+                    }
+                    item { Spacer(modifier = Modifier.height(16.dp)) }
+                }
+
+                if (onlineResults.isNotEmpty()) {
+                    item { ListHeader { Text("在线歌曲") } }
+                    items(onlineResults) { song: MediaItem ->
+                        val isCurrent = song.mediaId == controller?.currentMediaItem?.mediaId
+                        SongListItem(
+                            item = song,
+                            isCurrent = isCurrent,
+                            onClick = {
                                 val scope = CoroutineScope(Dispatchers.IO)
                                 scope.launch {
                                     try {
-                                        val resp = client.newCall(Request.Builder().url(playApiUrl).build()).execute().body.string()
-                                        if (resp.startsWith("http")) {
+                                        val source = song.mediaMetadata.extras?.getString("source") ?: ""
+                                        val realUrl = MusicSourceEngine.getMusicUrl(song.mediaId, source)
+                                        
+                                        if (realUrl.isNotBlank()) {
                                             withContext(Dispatchers.Main) {
                                                 controller?.let {
-                                                    val finalSong = song.buildUpon().setUri(resp.toUri()).build()
+                                                    val finalSong = song.buildUpon().setUri(realUrl.toUri()).build()
                                                     var foundIndex = -1
                                                     for (i in 0 until it.mediaItemCount) {
                                                         if (it.getMediaItemAt(i).mediaId == song.mediaId) { foundIndex = i; break }
@@ -432,35 +675,24 @@ fun SearchScreen(controller: MediaController?, onDismiss: () -> Unit) {
                                             }
                                         }
                                     } catch (e: Exception) {
-                                        Log.e("LXN", "Failed to fetch Kuwo URL", e)
+                                        Log.e(AppConstants.LOG_TAG, "Failed to fetch real URL via JS", e)
                                     }
                                 }
-                            } else {
-                                controller?.let {
-                                    var foundIndex = -1
-                                    for (i in 0 until it.mediaItemCount) {
-                                        if (it.getMediaItemAt(i).mediaId == song.mediaId) { foundIndex = i; break }
-                                    }
-                                    if (foundIndex != -1) {
-                                        it.seekTo(foundIndex, 0L)
-                                    } else {
-                                        it.addMediaItem(song)
-                                        it.seekTo(it.mediaItemCount - 1, 0L)
-                                    }
-                                    it.prepare()
-                                    it.play()
-                                }
-                                onDismiss()
+                            },
+                            onLongClick = {
+                                actionSong = song
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = {
-                            Column {
-                                Text(song.mediaMetadata.title.toString(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(song.mediaMetadata.artist.toString(), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
+                        )
+                    }
+                    if (!isSearching) {
+                        item {
+                            FilledTonalButton(
+                                onClick = { currentPage++ },
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                label = { Text("加载下一页 (页码: ${currentPage + 1})") }
+                            )
                         }
-                    )
+                    }
                 }
             }
         }
@@ -470,19 +702,22 @@ fun SearchScreen(controller: MediaController?, onDismiss: () -> Unit) {
 @Composable
 fun ArtistsScreen(onArtistClick: (String) -> Unit) {
     val appContext = LocalContext.current
-    val repository = remember { MediaRepository(appContext) }
+    val repository = remember { (appContext.applicationContext as LXNApplication).container.mediaRepository }
     val artists = remember { repository.getArtists() }
     val columnState = rememberScalingLazyListState()
 
-    ScreenScaffold(scrollState = columnState) {
+    ScreenScaffold(
+        scrollState = columnState,
+        scrollIndicator = { ScrollIndicator(columnState) }
+    ) {
         ScalingLazyColumn(
             modifier = Modifier.fillMaxSize().fadingEdge(),
             state = columnState,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 30.dp)
         ) {
-            item { ListHeader { Text("艺人") } }
+            item { ListHeader { Text(stringResource(R.string.library_artists)) } }
             if (artists.isEmpty()) {
-                item { Text("暂无艺人信息", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
+                item { Text(stringResource(R.string.no_artists), modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
             } else {
                 items(artists) { artist ->
                     FilledTonalButton(
@@ -499,19 +734,22 @@ fun ArtistsScreen(onArtistClick: (String) -> Unit) {
 @Composable
 fun AlbumsScreen(onAlbumClick: (String) -> Unit) {
     val appContext = LocalContext.current
-    val repository = remember { MediaRepository(appContext) }
+    val repository = remember { (appContext.applicationContext as LXNApplication).container.mediaRepository }
     val albums = remember { repository.getAlbums() }
     val columnState = rememberScalingLazyListState()
 
-    ScreenScaffold(scrollState = columnState) {
+    ScreenScaffold(
+        scrollState = columnState,
+        scrollIndicator = { ScrollIndicator(columnState) }
+    ) {
         ScalingLazyColumn(
             modifier = Modifier.fillMaxSize().fadingEdge(),
             state = columnState,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 30.dp)
         ) {
-            item { ListHeader { Text("专辑") } }
+            item { ListHeader { Text(stringResource(R.string.library_albums)) } }
             if (albums.isEmpty()) {
-                item { Text("暂无专辑信息", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
+                item { Text(stringResource(R.string.no_albums), modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
             } else {
                 items(albums) { album ->
                     FilledTonalButton(
@@ -527,71 +765,86 @@ fun AlbumsScreen(onAlbumClick: (String) -> Unit) {
 
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
-fun FilteredMusicScreen(title: String, filterType: String, filterValue: String, controller: MediaController?, onDismiss: () -> Unit) {
-    val appContext = LocalContext.current
-    val repository = remember { MediaRepository(appContext) }
-    val musicItems = remember {
-        if (filterType == "artist") repository.getMusicByArtist(filterValue)
-        else repository.getMusicByAlbum(filterValue)
-    }
-    val columnState = rememberScalingLazyListState()
-    val currentMediaId = controller?.currentMediaItem?.mediaId
-
-    ScreenScaffold(scrollState = columnState) {
-        ScalingLazyColumn(
-            modifier = Modifier.fillMaxSize().fadingEdge(),
-            state = columnState,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 30.dp)
-        ) {
-            item { ListHeader { Text(title) } }
-            items(musicItems) { item ->
-                val isCurrent = item.mediaId == currentMediaId
-                FilledTonalButton(
-                    onClick = {
-                        controller?.let {
-                            var foundIndex = -1
-                            for (i in 0 until it.mediaItemCount) {
-                                if (it.getMediaItemAt(i).mediaId == item.mediaId) { foundIndex = i; break }
-                            }
-                            if (foundIndex != -1) {
-                                it.seekTo(foundIndex, 0L)
-                            } else {
-                                it.addMediaItem(item)
-                                it.seekTo(it.mediaItemCount - 1, 0L)
-                            }
-                            it.prepare()
-                            it.play()
-                            onDismiss()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                MarqueeText(
-                                    text = item.mediaMetadata.title?.toString() ?: "未知曲目",
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    marqueeDpPerSecond = 10.dp,
-                                    edgeGradientWidth = 60.dp
-                                )
-                            }
-                            if (isCurrent) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
+fun FilteredMusicScreen(
+    title: String,
+    filterType: String,
+    filterValue: String,
+    controller: MediaController?,
+    persistence: PlaybackPersistence,
+    onDismiss: () -> Unit
+) {
+    var actionSong by remember { mutableStateOf<MediaItem?>(null) }
+    if (actionSong != null) {
+        SongActionDialog(
+            mediaItem = actionSong!!,
+            persistence = persistence,
+            controller = controller,
+            onPlayNow = {
+                controller?.let {
+                    var foundIndex = -1
+                    for (i in 0 until it.mediaItemCount) {
+                        if (it.getMediaItemAt(i).mediaId == actionSong!!.mediaId) { foundIndex = i; break }
                     }
-                )
+                    if (foundIndex != -1) {
+                        it.seekTo(foundIndex, 0L)
+                    } else {
+                        it.addMediaItem(actionSong!!)
+                        it.seekTo(it.mediaItemCount - 1, 0L)
+                    }
+                    it.prepare()
+                    it.play()
+                    onDismiss()
+                }
+            },
+            onDismiss = { actionSong = null }
+        )
+    } else {
+        val appContext = LocalContext.current
+        val repository = remember { (appContext.applicationContext as LXNApplication).container.mediaRepository }
+        val musicItems = remember {
+            if (filterType == "artist") repository.getMusicByArtist(filterValue)
+            else repository.getMusicByAlbum(filterValue)
+        }
+        val columnState = rememberScalingLazyListState()
+        val currentMediaId = controller?.currentMediaItem?.mediaId
+
+        ScreenScaffold(
+            scrollState = columnState,
+            scrollIndicator = { ScrollIndicator(columnState) }
+        ) {
+            ScalingLazyColumn(
+                modifier = Modifier.fillMaxSize().fadingEdge(),
+                state = columnState,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 30.dp)
+            ) {
+                item { ListHeader { Text(title) } }
+                items(musicItems) { item ->
+                    val isCurrent = item.mediaId == currentMediaId
+                    SongListItem(
+                        item = item,
+                        isCurrent = isCurrent,
+                        onClick = {
+                            controller?.let {
+                                var foundIndex = -1
+                                for (i in 0 until it.mediaItemCount) {
+                                    if (it.getMediaItemAt(i).mediaId == item.mediaId) { foundIndex = i; break }
+                                }
+                                if (foundIndex != -1) {
+                                    it.seekTo(foundIndex, 0L)
+                                } else {
+                                    it.addMediaItem(item)
+                                    it.seekTo(it.mediaItemCount - 1, 0L)
+                                }
+                                it.prepare()
+                                it.play()
+                                onDismiss()
+                            }
+                        },
+                        onLongClick = {
+                            actionSong = item
+                        }
+                    )
+                }
             }
         }
     }

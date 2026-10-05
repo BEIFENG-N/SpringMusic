@@ -1,6 +1,7 @@
 package com.example.lxn2.presentation.player
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -43,19 +44,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.example.lxn2.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,21 +72,24 @@ import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.foundation.requestFocusOnHierarchyActive
+import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
 import androidx.wear.compose.foundation.rotary.rotaryScrollable
 import androidx.wear.compose.material3.FilledTonalButton
 import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.IconButton
 import androidx.wear.compose.material3.IconButtonDefaults
+import androidx.wear.compose.material3.LevelIndicator
+import androidx.wear.compose.material3.LevelIndicatorDefaults
 import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
+import androidx.wear.compose.material3.ScrollIndicator
 import androidx.wear.compose.material3.Text
 import com.example.lxn2.data.LyricLine
-import com.example.lxn2.data.MediaRepository
 import com.example.lxn2.presentation.components.SquigglyBadgeShape
 import com.example.lxn2.presentation.components.fadingEdge
 import com.google.android.horologist.annotations.ExperimentalHorologistApi
-import com.google.android.horologist.audio.ui.VolumePositionIndicator
+import com.google.android.horologist.audio.ui.VolumeUiState
 import com.google.android.horologist.audio.ui.VolumeViewModel
 import com.google.android.horologist.audio.ui.volumeRotaryBehavior
 import com.google.android.horologist.composables.MarqueeText
@@ -94,6 +101,51 @@ import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
+
+@Composable
+fun VolumeLevelIndicator(
+    volumeUiState: () -> VolumeUiState,
+    displayIndicatorEvents: kotlinx.coroutines.flow.Flow<Unit>?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    sweepAngle: Float = 54f
+) {
+    val visible by produceState(
+        initialValue = displayIndicatorEvents == null,
+        key1 = displayIndicatorEvents
+    ) {
+        displayIndicatorEvents?.collectLatest {
+            value = true
+            delay(2000)
+            value = false
+        }
+    }
+    val uiState = volumeUiState()
+    val fraction = remember(uiState.current, uiState.min, uiState.max) {
+        if (uiState.max > uiState.min) {
+            ((uiState.current - uiState.min).toFloat() / (uiState.max - uiState.min).toFloat()).coerceIn(0f, 1f)
+        } else 0f
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier.fillMaxSize()
+    ) {
+        LevelIndicator(
+            value = { fraction },
+            modifier = Modifier.fillMaxSize(),
+            enabled = enabled,
+            sweepAngle = sweepAngle,
+            colors = LevelIndicatorDefaults.colors(
+                indicatorColor = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceContainer
+            )
+        )
+    }
+}
 
 @Composable
 fun CustomMediaControlButtons(
@@ -103,30 +155,29 @@ fun CustomMediaControlButtons(
     onNextClick: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(64.dp),
+        modifier = Modifier.fillMaxWidth().height(58.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 1. 上一首按钮
         IconButton(
             onClick = onPreviousClick,
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier.size(42.dp),
             colors = IconButtonDefaults.iconButtonColors(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
             )
         ) {
-            Icon(Icons.Rounded.SkipPrevious, contentDescription = "上一首", modifier = Modifier.size(24.dp))
+            Icon(Icons.Rounded.SkipPrevious, contentDescription = stringResource(R.string.btn_skip_previous), modifier = Modifier.size(22.dp))
         }
 
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.width(8.dp))
 
         // 2. 播放/暂停按钮容器
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(64.dp)) {
-            // 核心播放按钮：恢复为之前的 52dp 实色风格
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(58.dp)) {
             Box(
                 modifier = Modifier
-                    .size(52.dp) 
+                    .size(50.dp) 
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.secondaryContainer) 
                     .clickable { onPlayPauseClick() },
@@ -134,25 +185,25 @@ fun CustomMediaControlButtons(
             ) {
                 Icon(
                     imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, 
-                    contentDescription = "播放暂停", 
-                    modifier = Modifier.size(28.dp),
+                    contentDescription = stringResource(R.string.btn_play_pause), 
+                    modifier = Modifier.size(26.dp),
                     tint = MaterialTheme.colorScheme.onSecondaryContainer 
                 )
             }
         }
 
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.width(8.dp))
 
         // 3. 下一首按钮
         IconButton(
             onClick = onNextClick,
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier.size(42.dp),
             colors = IconButtonDefaults.iconButtonColors(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
             )
         ) {
-            Icon(Icons.Rounded.SkipNext, contentDescription = "下一首", modifier = Modifier.size(24.dp))
+            Icon(Icons.Rounded.SkipNext, contentDescription = stringResource(R.string.btn_skip_next), modifier = Modifier.size(22.dp))
         }
     }
 }
@@ -206,8 +257,8 @@ fun PlayerUI(
     }
 
     val readyMedia = playerUiState.media as? MediaUiModel.Ready
-    val displayTitle = readyMedia?.title ?: fallbackTitle ?: "无歌曲播放"
-    val displayArtist = readyMedia?.subtitle ?: fallbackArtist ?: "请扫描本地音乐"
+    val displayTitle = readyMedia?.title ?: fallbackTitle ?: stringResource(R.string.no_song_playing)
+    val displayArtist = readyMedia?.subtitle ?: fallbackArtist ?: stringResource(R.string.please_scan_local_music)
 
     ScreenScaffold {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -243,7 +294,7 @@ fun PlayerUI(
                             ) {
                                 Icon(
                                     Icons.Default.Headphones,
-                                    contentDescription = "输出",
+                                    contentDescription = stringResource(R.string.btn_output_device),
                                     modifier = Modifier.size(18.dp),
                                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
@@ -303,22 +354,27 @@ fun PlayerUI(
                             }
                             Icon(
                                 modeIcon, 
-                                contentDescription = "播放模式", 
+                                contentDescription = stringResource(R.string.btn_play_mode), 
                                 modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                     }
                 },
-                modifier = Modifier.requestFocusOnHierarchyActive().rotaryScrollable(
-                    volumeRotaryBehavior(volumeUiStateProvider = { volumeUiState }, onRotaryVolumeInput = { newVolume -> volumeViewModel.setVolume(newVolume) }),
-                    focusRequester = remember { FocusRequester() }
-                )
+                modifier = Modifier
+                    .requestFocusOnHierarchyActive()
+                    .onRotaryScrollEvent { true } // 兜底拦截：确保即便音量到头，事件也不会冒泡给 Pager
+                    .rotaryScrollable(
+                        behavior = volumeRotaryBehavior(
+                            volumeUiStateProvider = { volumeUiState }, 
+                            onRotaryVolumeInput = { newVolume -> volumeViewModel.setVolume(newVolume) }
+                        ),
+                        focusRequester = remember { FocusRequester() }
+                    )
             )
-            VolumePositionIndicator(
+            VolumeLevelIndicator(
                 volumeUiState = { volumeUiState },
-                displayIndicatorEvents = volumeViewModel.displayIndicatorEvents,
-                color = MaterialTheme.colorScheme.primary
+                displayIndicatorEvents = volumeViewModel.displayIndicatorEvents
             )
         }
     }
@@ -345,157 +401,290 @@ fun SlowerMarqueeMediaDisplay(title: String?, artist: String?, modifier: Modifie
     }
 }
 
+@OptIn(ExperimentalHorologistApi::class)
 @Composable
-fun LyricsScreenContent(controller: MediaController?, detectLyrics: Boolean) {
+fun LyricsScreenContent(
+    controller: MediaController?, 
+    detectLyrics: Boolean,
+    persistence: com.example.lxn2.data.PlaybackPersistence
+) {
     val appContext = LocalContext.current
-    val repository = remember { MediaRepository(appContext) }
+    val repository = remember { (appContext.applicationContext as com.example.lxn2.LXNApplication).container.mediaRepository }
     var lyricLines by remember { mutableStateOf<List<LyricLine>>(emptyList()) }
     var currentPosition by remember { mutableLongStateOf(0L) }
+    val showTranslation = persistence.isShowLyricTranslation()
     
     var currentMediaItem by remember { mutableStateOf(controller?.currentMediaItem) }
     DisposableEffect(controller) {
         val listener = object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
                 if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
-                   currentMediaItem = player.currentMediaItem
+                    currentMediaItem = player.currentMediaItem
+                    currentPosition = 0L
                 }
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                currentPosition = newPosition.positionMs
             }
         }
         controller?.addListener(listener)
         currentMediaItem = controller?.currentMediaItem
+        currentPosition = controller?.currentPosition ?: 0L
         onDispose { controller?.removeListener(listener) }
     }
 
-    LaunchedEffect(currentMediaItem, detectLyrics) {
+    LaunchedEffect(currentMediaItem, detectLyrics, showTranslation) {
         lyricLines = if (currentMediaItem != null && detectLyrics) {
-            repository.getParsedLyrics(currentMediaItem!!)
+            repository.getParsedLyrics(currentMediaItem!!, showTranslation = showTranslation)
         } else {
             emptyList()
         }
     }
 
-    LaunchedEffect(controller) { while (true) { currentPosition = controller?.currentPosition ?: 0L; delay(100.milliseconds) } }
-
-    val activeIndex = remember(lyricLines, currentPosition) { 
-        val lastMatchingIdx = lyricLines.indexOfLast { it.timeMs <= currentPosition }
-        if (lastMatchingIdx == -1) return@remember -1
-        val activeTime = lyricLines[lastMatchingIdx].timeMs
-        lyricLines.indexOfFirst { it.timeMs == activeTime }
+    // 二分查找当前时间对应的歌词高亮行（lyricLines 按 timeMs 升序）
+    val activeIndex = remember(lyricLines, currentPosition) {
+        var low = 0
+        var high = lyricLines.lastIndex
+        var result = -1
+        while (low <= high) {
+            val mid = (low + high).ushr(1)
+            if (lyricLines[mid].timeMs <= currentPosition) {
+                result = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        result
     }
     
     val columnState = rememberScalingLazyListState()
+    val focusRequester = remember { FocusRequester() }
     LaunchedEffect(activeIndex) { if (activeIndex >= 0) columnState.animateScrollToItem(activeIndex + 1) }
 
-    ScreenScaffold(scrollState = columnState) {
-        ScalingLazyColumn(modifier = Modifier.fillMaxSize().fadingEdge(), state = columnState, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 50.dp)) {
-            item { ListHeader { Text("歌词") } }
+    ScreenScaffold(
+        scrollState = columnState,
+        scrollIndicator = { ScrollIndicator(columnState) }
+    ) {
+        ScalingLazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .fadingEdge()
+                .requestFocusOnHierarchyActive()
+                .rotaryScrollable(
+                    behavior = RotaryScrollableDefaults.behavior(columnState),
+                    focusRequester = focusRequester
+                ),
+            state = columnState, 
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 50.dp)
+        ) {
+            item { ListHeader { Text(stringResource(R.string.lyrics_title)) } }
             if (lyricLines.isEmpty()) {
-                item { Text(text = if (detectLyrics) "暂无歌词" else "歌词功能已禁用", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+                item { Text(text = if (detectLyrics) stringResource(R.string.no_lyrics) else stringResource(R.string.lyrics_disabled), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
             } else {
                 items(lyricLines) { line: LyricLine ->
                     val isActive = line == lyricLines.getOrNull(activeIndex)
                     val alpha by animateFloatAsState(if (isActive) 1f else 0.5f)
-                    Text(
-                        text = line.text, 
-                        textAlign = TextAlign.Center, 
-                        fontSize = if (isActive) 16.sp else 14.sp, 
-                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal, 
-                        color = if (isActive) Color.White else Color.LightGray, 
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).alpha(alpha)
-                    )
+                    ) {
+                        Text(
+                            text = line.text, 
+                            textAlign = TextAlign.Center, 
+                            fontSize = if (isActive) 16.sp else 14.sp, 
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal, 
+                            color = if (isActive) Color.White else Color.LightGray, 
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (showTranslation && !line.translation.isNullOrBlank()) {
+                            Text(
+                                text = line.translation,
+                                textAlign = TextAlign.Center,
+                                fontSize = if (isActive) 13.sp else 11.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = if (isActive) MaterialTheme.colorScheme.primary else Color.Gray,
+                                modifier = Modifier.fillMaxWidth().padding(top = 1.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalHorologistApi::class)
 @Composable
-fun OutputDevicePickerScreen(controller: MediaController?, onConnectClick: () -> Unit, onThisWatchClick: () -> Unit) {
+fun OutputDevicePickerScreen(
+    controller: MediaController?,
+    volumeViewModel: VolumeViewModel,
+    onConnectClick: () -> Unit,
+    onThisWatchClick: () -> Unit
+) {
     val columnState = rememberScalingLazyListState()
-    var playerVolume by remember(controller) { mutableFloatStateOf(controller?.volume ?: 1f) }
+    val volumeUiState by volumeViewModel.volumeUiState.collectAsStateWithLifecycle()
 
-    DisposableEffect(controller) {
-        val listener = object : Player.Listener {
-            override fun onVolumeChanged(volume: Float) {
-                playerVolume = volume
+    val volumeFraction = if (volumeUiState.max > volumeUiState.min) {
+        ((volumeUiState.current - volumeUiState.min).toFloat() / (volumeUiState.max - volumeUiState.min).toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
+    val focusRequester = remember { FocusRequester() }
+
+    ScreenScaffold(
+        scrollState = columnState,
+        scrollIndicator = { ScrollIndicator(columnState) }
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            ScalingLazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .fadingEdge()
+                    .requestFocusOnHierarchyActive()
+                    .onRotaryScrollEvent { true }
+                    .rotaryScrollable(
+                        behavior = RotaryScrollableDefaults.behavior(columnState),
+                        focusRequester = focusRequester
+                    ),
+                state = columnState,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                item { ListHeader { Text(stringResource(R.string.playback_controls)) } }
+                
+                // Volume Control Pill
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .background(MaterialTheme.colorScheme.surfaceContainer, CircleShape)
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { volumeViewModel.decreaseVolumeWithHaptics() },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.decrease_volume))
+                        }
+
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 10.dp)
+                                .height(8.dp)
+                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(volumeFraction)
+                                    .fillMaxHeight()
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                            )
+                        }
+
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
+
+                        IconButton(
+                            onClick = { volumeViewModel.increaseVolumeWithHaptics() },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.increase_volume))
+                        }
+                    }
+                }
+
+                item {
+                    FilledTonalButton(
+                        onClick = onConnectClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.connect_device)) },
+                        icon = { Icon(imageVector = Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) }
+                    )
+                }
+
+                item {
+                    FilledTonalButton(
+                        onClick = onThisWatchClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.this_watch)) },
+                        icon = { Icon(imageVector = Icons.Default.Watch, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.secondary) }
+                    )
+                }
             }
-        }
-        controller?.addListener(listener)
-        onDispose { controller?.removeListener(listener) }
+        VolumeLevelIndicator(
+            volumeUiState = { volumeUiState },
+            displayIndicatorEvents = volumeViewModel.displayIndicatorEvents
+        )
     }
+}
+}
 
-    ScreenScaffold(scrollState = columnState) {
+@Composable
+fun TempPlayListScreen(
+    onRemove: (Int) -> Unit,
+    onClear: () -> Unit
+) {
+    val tempItems by com.example.lxn2.data.core.PlayerCore.tempPlayList.collectAsStateWithLifecycle()
+    val columnState = rememberScalingLazyListState()
+
+    ScreenScaffold(
+        scrollState = columnState,
+        scrollIndicator = { ScrollIndicator(columnState) }
+    ) {
         ScalingLazyColumn(
             modifier = Modifier.fillMaxSize().fadingEdge(),
             state = columnState,
-            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 30.dp, top = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 30.dp)
         ) {
-            item { ListHeader { Text("播放控件") } }
-            
-            // Volume Control Pill
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth(0.9f)
-                        .height(48.dp)
-                        .background(MaterialTheme.colorScheme.surfaceContainer, CircleShape)
-                        .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { controller?.let { it.volume = (it.volume - 0.05f).coerceAtLeast(0f) } },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(Icons.Default.Remove, null)
-                    }
+            item { ListHeader { Text("${stringResource(R.string.temp_playlist_title)} (${tempItems.size})") } }
 
-                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 10.dp)
-                            .height(8.dp)
-                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(playerVolume)
-                                .fillMaxHeight()
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                        )
-                    }
-
-                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
-
-                    IconButton(
-                        onClick = { controller?.let { it.volume = (it.volume + 0.05f).coerceAtMost(1f) } },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(Icons.Default.Add, null)
-                    }
+            if (tempItems.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.temp_playlist_empty),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
+                        textAlign = TextAlign.Center,
+                        color = Color.Gray
+                    )
                 }
-            }
-
-            item { Spacer(modifier = Modifier.height(16.dp)) }
-
-            item {
-                FilledTonalButton(
-                    onClick = onConnectClick,
-                    modifier = Modifier.fillMaxWidth().height(60.dp),
-                    label = { Text("连接设备") },
-                    icon = { Icon(imageVector = Icons.Default.Bluetooth, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                )
-            }
-            item { Spacer(modifier = Modifier.height(12.dp)) }
-            item {
-                FilledTonalButton(
-                    onClick = onThisWatchClick,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("这只手表") },
-                    icon = { Icon(imageVector = Icons.Default.Watch, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.secondary) }
-                )
+            } else {
+                item {
+                    FilledTonalButton(
+                        onClick = onClear,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        label = { Text(stringResource(R.string.clear_temp_playlist)) }
+                    )
+                }
+                items(tempItems.indices.toList()) { index ->
+                    val item = tempItems[index]
+                    FilledTonalButton(
+                        onClick = { onRemove(index) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        label = {
+                            Text(
+                                text = "${index + 1}. ${item.mediaMetadata.title ?: "未知曲目"}",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        secondaryLabel = {
+                            Text(
+                                text = item.mediaMetadata.artist?.toString() ?: "未知歌手",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    )
+                }
             }
         }
     }

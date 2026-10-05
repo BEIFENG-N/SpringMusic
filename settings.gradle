@@ -29,5 +29,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "SpringMusic"
-include ':mobile'
 include ':wear'

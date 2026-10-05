@@ -44,9 +44,9 @@ class PlaybackPersistenceTest {
 
     @Test
     fun saveAndGetLastPlayedIdFromZero() {
-        persistence.saveLastPlayedIdAsZero("abc")
+        persistence.saveLastPlayedId("abc")
         assertEquals("abc", persistence.getLastPlayedIdFromZero())
-        persistence.saveLastPlayedIdAsZero(null)
+        persistence.saveLastPlayedId(null)
         assertNull(persistence.getLastPlayedIdFromZero())
     }
 

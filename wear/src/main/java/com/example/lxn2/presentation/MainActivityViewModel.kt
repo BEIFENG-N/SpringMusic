@@ -9,6 +9,8 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.example.lxn2.LXNApplication
+import com.example.lxn2.data.AppConstants
+import com.example.lxn2.data.MediaCacheCodec
 import com.example.lxn2.service.PlaybackService
 import com.google.android.horologist.annotations.ExperimentalHorologistApi
 import com.google.android.horologist.media.data.repository.PlayerRepositoryImpl
@@ -32,6 +34,9 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
     
     private val _mediaController = MutableStateFlow<MediaController?>(null)
     val mediaController: StateFlow<MediaController?> = _mediaController.asStateFlow()
+
+    private val _currentMediaItem = MutableStateFlow<MediaItem?>(null)
+    val currentMediaItem: StateFlow<MediaItem?> = _currentMediaItem.asStateFlow()
 
     private val _playerRepository = MutableStateFlow<PlayerRepository?>(null)
     val playerRepository: StateFlow<PlayerRepository?> = _playerRepository.asStateFlow()
@@ -58,7 +63,7 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         if (controllerFuture?.isDone == false) return
 
         val app = getApplication<Application>()
-        val sessionToken = SessionToken(app, ComponentName(app, com.example.lxn2.service.PlaybackService::class.java))
+        val sessionToken = SessionToken(app, ComponentName(app, PlaybackService::class.java))
         controllerFuture = MediaController.Builder(app, sessionToken).buildAsync()
         
         controllerFuture?.addListener(
@@ -67,24 +72,33 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
                     val mediaControllerInstance = controllerFuture?.get()
                 if (mediaControllerInstance != null) {
                     _mediaController.value = mediaControllerInstance
+                    _currentMediaItem.value = mediaControllerInstance.currentMediaItem
                     
                     if (mediaControllerInstance.mediaItemCount == 0) {
                         viewModelScope.launch {
-                            val cachedItems = withContext(Dispatchers.IO) { repository.getCachedMusic() }
-                            if (cachedItems.isNotEmpty()) {
-                                Log.d("LXN", "ViewModel: Async loading ${cachedItems.size} items from cache.")
-                                mediaControllerInstance.setMediaItems(cachedItems)
+                            // 优先从 session 恢复（包含在线和本地混合队列）
+                            val sessionJson = persistence.getSessionPlaylist()
+                            val restoredItems = if (sessionJson != null) {
+                                MediaCacheCodec.decode(sessionJson)
+                            } else {
+                                withContext(Dispatchers.IO) { repository.getCachedMusic() }
+                            }
+
+                            if (restoredItems.isNotEmpty()) {
+                                Log.d(AppConstants.LOG_TAG, "ViewModel: Restoring ${restoredItems.size} items from session/cache.")
+                                mediaControllerInstance.setMediaItems(restoredItems)
                                 
-                                val lastIdZero = persistence.getLastPlayedIdFromZero()
-                                val index = cachedItems.indexOfFirst { it.mediaId == lastIdZero }
+                                val lastIndex = persistence.getLastMediaIndex()
+                                val lastPos = persistence.getLastPosition()
                                 
-                                if (index != -1) {
-                                    mediaControllerInstance.seekTo(index, 0L)
+                                if (lastIndex in restoredItems.indices) {
+                                    mediaControllerInstance.seekTo(lastIndex, lastPos)
                                 } else {
                                     mediaControllerInstance.seekTo(0, 0L)
                                 }
                                 mediaControllerInstance.prepare()
                             }
+                            _currentMediaItem.value = mediaControllerInstance.currentMediaItem
                             _isReady.value = true
                         }
                     } else {
@@ -94,14 +108,24 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
                     mediaControllerInstance.addListener(
                         object : Player.Listener {
                             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                                mediaItem?.mediaId?.let {
-                                    persistence.recordPlayedMedia(it)
+                                _currentMediaItem.value = mediaItem ?: mediaControllerInstance.currentMediaItem
+                                mediaItem?.let {
+                                    persistence.recordPlayedMedia(it.mediaId)
+                                    com.example.lxn2.data.core.PlayerCore.addPlayedList(it)
+                                    
+                                    // Handle timeout exit (isPlayedStop)
+                                    if (com.example.lxn2.data.core.PlayerCore.isPlayedStop.value) {
+                                        Log.d(AppConstants.LOG_TAG, "isPlayedStop is true, stopping playback after song finish.")
+                                        mediaControllerInstance.pause()
+                                        com.example.lxn2.data.core.PlayerCore.setIsPlayedStop(false)
+                                        _remainingTime.value = null
+                                    }
                                 }
                             }
                         },
                     )
 
-                    val repo = com.google.android.horologist.media.data.repository.PlayerRepositoryImpl()
+                    val repo = PlayerRepositoryImpl()
                     repo.connect(mediaControllerInstance) {
                         _mediaController.value = null
                         _playerRepository.value = null
@@ -110,7 +134,7 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
                     _playerRepository.value = repo
                 }
             } catch (e: Exception) {
-                Log.e("LXN", "ViewModel: Connection failed", e)
+                Log.e(AppConstants.LOG_TAG, "ViewModel: Connection failed", e)
                 controllerFuture = null 
                 _isReady.value = true
             }
@@ -122,50 +146,51 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _finishSongBeforeStop.value = finishSong
         if (totalSeconds <= 0) {
             _remainingTime.value = null
+            com.example.lxn2.data.core.PlayerCore.setIsPlayedStop(false)
             return
         }
 
         _remainingTime.value = totalSeconds.toLong()
         timerJob = viewModelScope.launch {
             var timeLeft = totalSeconds
-            Log.d("LXN-Timer", "Starting timer: $timeLeft seconds")
+            Log.d(AppConstants.LOG_TAG, "Starting timer: $timeLeft seconds")
             while (timeLeft > 0) {
                 delay(1.seconds)
                 timeLeft--
                 _remainingTime.value = timeLeft.toLong()
             }
-            Log.d("LXN-Timer", "Timer finished")
+            Log.d(AppConstants.LOG_TAG, "Timer finished")
             
             if (_finishSongBeforeStop.value) {
                 // 等待当前歌曲播放结束
                 val controller = mediaController.value
                 if (controller != null && controller.isPlaying) {
-                    Log.d("LXN-Timer", "Time up! Waiting for current song to finish.")
+                    Log.d(AppConstants.LOG_TAG, "Time up! Waiting for current song to finish.")
                     _remainingTime.value = 0L // 用 0 表示等待中
-                    
-                    val listener = object : Player.Listener {
-                        override fun onEvents(player: Player, events: Player.Events) {
-                            if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
-                                Log.d("LXN-Timer", "Song transition detected. Pausing now.")
-                                player.pause()
-                                player.removeListener(this)
-                                _remainingTime.value = null
-                            }
-                        }
-                    }
-                    controller.addListener(listener)
+                    com.example.lxn2.data.core.PlayerCore.setIsPlayedStop(true)
                     return@launch
                 }
             }
             
             mediaController.value?.pause()
             _remainingTime.value = null
+            com.example.lxn2.data.core.PlayerCore.setIsPlayedStop(false)
         }
     }
 
     fun cancelTimer() {
         timerJob?.cancel()
         _remainingTime.value = null
+        com.example.lxn2.data.core.PlayerCore.setIsPlayedStop(false)
+    }
+
+    // --- Temp Play List Integration ---
+    fun removeFromTempPlayList(index: Int) {
+        com.example.lxn2.data.core.PlayerCore.removeTempPlayList(index)
+    }
+
+    fun clearTempPlayList() {
+        com.example.lxn2.data.core.PlayerCore.clearTempPlayList()
     }
 
     override fun onCleared() {

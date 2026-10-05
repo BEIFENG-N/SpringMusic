@@ -208,9 +208,9 @@ fun TimePickerScreen(onConfirm: (Int, Int, Int) -> Unit) {
 
             IconButton(
                 onClick = { onConfirm(hours, minutes, seconds) },
-                modifier = Modifier.size(52.dp).background(Color(0xFFADCFFF), CircleShape)
+                modifier = Modifier.size(52.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
             ) {
-                Icon(Icons.Default.Check, null, tint = Color(0xFF003355), modifier = Modifier.size(28.dp))
+                Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(28.dp))
             }
         }
     }
@@ -267,7 +267,7 @@ fun TimerPickerColumn(
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 30.sp
                     ),
-                    color = if (isFocused && isSelected) Color.White else if (isSelected) Color(0xFFADCFFF) else Color.DarkGray,
+                    color = if (isFocused && isSelected) Color.White else if (isSelected) MaterialTheme.colorScheme.primary else Color.DarkGray,
                     modifier = Modifier.alpha(if (isSelected) 1f else 0.4f)
                 )
             }

@@ -2,6 +2,8 @@ package com.example.lxn2.presentation.theme
 
 import android.os.Build
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -10,9 +12,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material3.ColorScheme
 import androidx.wear.compose.material3.MaterialTheme
-import androidx.wear.compose.material3.Typography
-import androidx.wear.compose.material3.SwitchButtonDefaults
 import androidx.wear.compose.material3.SwitchButtonColors
+import androidx.wear.compose.material3.SwitchButtonDefaults
+import androidx.wear.compose.material3.Typography
 import androidx.wear.compose.material3.dynamicColorScheme
 
 data class ThemeColor(val name: String, val color: Color)
@@ -34,6 +36,8 @@ val ThemeColors = listOf(
     ThemeColor("云白色", Color(0xFFE1E1E1)),
     ThemeColor("杏仁白", Color(0xFFF5E6D3))
 )
+
+val LocalDisplayEffect = staticCompositionLocalOf { "GLASSMORPHISM" }
 
 /**
  * Wear Material 3 调色板定义。
@@ -58,7 +62,7 @@ fun createColorScheme(primary: Color): ColorScheme {
         onSurfaceVariant = Color.LightGray,
         outline = Color.Gray,
         outlineVariant = Color.DarkGray,
-        background = Color.Black, // 严格纯黑
+        background = Color.Black, // 恢复为黑色，保证系统组件默认不透明
         onBackground = Color.White,
         error = Color(0xFFFFB4AB),
         onError = Color(0xFF690005)
@@ -119,19 +123,40 @@ fun lxnSwitchButtonColors(): SwitchButtonColors {
 @Composable
 fun LXNTheme(
     primaryColor: Color = Color(0xFFB7E4C7),
+    displayEffect: String = "GLASSMORPHISM",
     useDynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    val colorScheme = if (useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    val isGlassmorphism = displayEffect == "GLASSMORPHISM"
+
+    val baseScheme = if (useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         dynamicColorScheme(context) ?: createColorScheme(primaryColor)
     } else {
         createColorScheme(primaryColor)
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = LXNTypography,
-        content = content
-    )
+    val colorScheme = if (isGlassmorphism) {
+        baseScheme.copy(
+            secondaryContainer = Color(0x22FFFFFF), // Glassmorphism：半透明深色毛玻璃材质
+            onSecondaryContainer = Color.White,
+            surfaceContainer = Color(0x1EFFFFFF),   // Glassmorphism：半透明毛玻璃列表/卡片/开关容器
+            primaryContainer = primaryColor.copy(alpha = 0.25f)
+        )
+    } else {
+        baseScheme.copy(
+            secondaryContainer = Color(0xFF2C2C2C), // Material Design：纯色不透明深灰 M3 按钮容器，去除控件半透明模糊
+            onSecondaryContainer = Color.White,
+            surfaceContainer = Color(0xFF1C1C1C),   // Material Design：纯色不透明深灰 M3 表面容器
+            primaryContainer = primaryColor.copy(alpha = 0.2f)
+        )
+    }
+
+    CompositionLocalProvider(LocalDisplayEffect provides displayEffect) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = LXNTypography,
+            content = content
+        )
+    }
 }

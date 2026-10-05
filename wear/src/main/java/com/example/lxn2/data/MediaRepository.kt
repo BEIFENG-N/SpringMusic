@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import com.example.lxn2.data.source.MusicSourceEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -14,7 +15,7 @@ import org.jaudiotagger.tag.FieldKey
 import org.json.JSONObject
 import java.io.File
 
-data class LyricLine(val timeMs: Long, val text: String)
+data class LyricLine(val timeMs: Long, val text: String, val translation: String? = null)
 
 class MediaRepository(private val appContext: Context) {
     private val client = OkHttpClient()
@@ -76,27 +77,22 @@ class MediaRepository(private val appContext: Context) {
             
             val numericId = (index + 1).toString()
 
+            val retriever = android.media.MediaMetadataRetriever()
             try {
-                val audioFile = AudioFileIO.read(file)
-                val tag = audioFile.tag
-                if (tag != null) {
-                    tag.getFirst(FieldKey.TITLE)?.takeIf { it.isNotBlank() }?.let { title = it }
-                    tag.getFirst(FieldKey.ARTIST)?.takeIf { it.isNotBlank() }?.let { artist = it }
-                    tag.getFirst(FieldKey.ALBUM)?.takeIf { it.isNotBlank() }?.let { album = it }
-                    
-                    // 识别并提取封面
-                    val artwork = tag.firstArtwork
-                    if (artwork != null) {
-                        val coverFile = File(coversDir, "$numericId.jpg")
-                        // 简单起见，每次扫描都重新提取，或者检查文件是否存在
-                        if (!coverFile.exists()) {
-                            coverFile.writeBytes(artwork.binaryData)
-                        }
-                        artworkPath = Uri.fromFile(coverFile).toString()
-                    }
-                }
+                retriever.setDataSource(file.absolutePath)
+                retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() }?.let { title = it }
+                retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST)?.takeIf { it.isNotBlank() }?.let { artist = it }
+                retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM)?.takeIf { it.isNotBlank() }?.let { album = it }
             } catch (e: Exception) { 
-                Log.e("LXN", "Tag read error for ${file.name}", e)
+                Log.e(AppConstants.LOG_TAG, "Retriever metadata error for ${file.name}", e)
+            } finally {
+                try { retriever.release() } catch (ignored: Exception) {}
+            }
+
+            // 提取封面 (双重兜底：Retriever + JAudioTagger)
+            val coverUri = getCoverUriForFilePath(appContext, file.absolutePath)
+            if (coverUri != null) {
+                artworkPath = coverUri.toString()
             }
 
             musicList.add(
@@ -110,7 +106,10 @@ class MediaRepository(private val appContext: Context) {
                     artworkUri = artworkPath
                 )
             )
-            onProgress(index + 1, total)
+            val currentProgress = index + 1
+            if (currentProgress == 1 || currentProgress == total || currentProgress % 10 == 0) {
+                onProgress(currentProgress, total)
+            }
         }
         
         // 3. Save the definitive A-Z indexed cache (v6 JSON)
@@ -176,7 +175,7 @@ class MediaRepository(private val appContext: Context) {
             .build()
     }
 
-    suspend fun getParsedLyrics(mediaItem: MediaItem): List<LyricLine> {
+    suspend fun getParsedLyrics(mediaItem: MediaItem, showTranslation: Boolean = true): List<LyricLine> {
         val filePath = mediaItem.mediaMetadata.extras?.getString("file_path") 
             ?: mediaItem.localConfiguration?.uri?.path
 
@@ -188,7 +187,7 @@ class MediaRepository(private val appContext: Context) {
                     val tag = audioFile.tag ?: return emptyList()
                     val rawLyrics = tag.getFirst(FieldKey.LYRICS)
                     if (!rawLyrics.isNullOrBlank()) {
-                        return LyricsParser.parse(rawLyrics)
+                        return LyricsParser.parse(lrcContent = rawLyrics, showTranslation = showTranslation)
                     }
                 } catch (e: Exception) {
                     Log.e("LXN", "Local lyric error", e)
@@ -196,7 +195,21 @@ class MediaRepository(private val appContext: Context) {
             }
         }
 
-        // Try online lyrics if it's a Netease ID (numeric)
+        // Try JS Engine for online sources
+        val source = mediaItem.mediaMetadata.extras?.getString("source")
+        if (source != null) {
+            return withContext(Dispatchers.IO) {
+                try {
+                    val lrcContent = MusicSourceEngine.getLyric(mediaItem.mediaId, source)
+                    LyricsParser.parse(lrcContent = lrcContent, showTranslation = showTranslation)
+                } catch (e: Exception) {
+                    Log.e("LXN", "JS Engine lyric error", e)
+                    emptyList()
+                }
+            }
+        }
+
+        // Try online lyrics if it's a Netease ID (numeric) - Fallback
         val mediaId = mediaItem.mediaId
         if (mediaId.all { it.isDigit() }) {
             return withContext(Dispatchers.IO) {
@@ -206,8 +219,9 @@ class MediaRepository(private val appContext: Context) {
                     val response = client.newCall(request).execute()
                     val json = JSONObject(response.body?.string() ?: "{}")
                     val lrc = json.optJSONObject("lrc")?.optString("lyric")
+                    val tlrc = json.optJSONObject("tlyric")?.optString("lyric")
                     if (!lrc.isNullOrBlank()) {
-                        LyricsParser.parse(lrc)
+                        LyricsParser.parse(lrcContent = lrc, tlyricContent = tlrc, showTranslation = showTranslation)
                     } else {
                         emptyList()
                     }
@@ -222,16 +236,12 @@ class MediaRepository(private val appContext: Context) {
     }
 
 
-    fun getAllMusic(customPath: String? = null): List<MediaItem> {
-        return getCachedMusic()
-    }
-
     fun getArtists(): List<String> {
-        return getCachedMusic().map { it.mediaMetadata.artist?.toString() ?: "Unknown Artist" }.distinct().sorted()
+        return getCachedMusic().asSequence().map { it.mediaMetadata.artist?.toString() ?: "Unknown Artist" }.distinct().sorted().toList()
     }
 
     fun getAlbums(): List<String> {
-        return getCachedMusic().map { it.mediaMetadata.albumTitle?.toString() ?: "Unknown Album" }.distinct().sorted()
+        return getCachedMusic().asSequence().map { it.mediaMetadata.albumTitle?.toString() ?: "Unknown Album" }.distinct().sorted().toList()
     }
 
     fun getMusicByArtist(artist: String): List<MediaItem> {
@@ -240,5 +250,84 @@ class MediaRepository(private val appContext: Context) {
 
     fun getMusicByAlbum(album: String): List<MediaItem> {
         return getCachedMusic().filter { (it.mediaMetadata.albumTitle?.toString() ?: "Unknown Album") == album }
+    }
+
+    companion object {
+        fun extractCoverBytes(file: File): ByteArray? {
+            if (!file.exists() || !file.isFile) return null
+            // 1. 优先使用原生 MediaMetadataRetriever (C++ 底层解解析)
+            val retriever = android.media.MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(file.absolutePath)
+                val picture = retriever.embeddedPicture
+                if (picture != null && picture.isNotEmpty()) {
+                    return picture
+                }
+            } catch (e: Exception) {
+                // 忽略原生 Retriever 异常，后面走 JAudioTagger 兜底
+            } finally {
+                try { retriever.release() } catch (ignored: Exception) {}
+            }
+
+            // 2. 兜底方案：使用 JAudioTagger 解析非标 ID3v2/FLAC 标签中的 Artwork
+            return try {
+                val audioFile = AudioFileIO.read(file)
+                audioFile.tag?.firstArtwork?.binaryData
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        fun getCoverUriForFilePath(context: Context, filePath: String): Uri? {
+            if (filePath.isBlank()) return null
+            val file = File(filePath)
+            if (!file.exists() || !file.isFile) return null
+
+            val coversDir = File(context.cacheDir, "covers")
+            if (!coversDir.exists()) coversDir.mkdirs()
+
+            val coverFileName = "${file.name.hashCode()}_cover.jpg"
+            val coverFile = File(coversDir, coverFileName)
+            if (coverFile.exists() && coverFile.length() > 0) {
+                return Uri.fromFile(coverFile)
+            }
+
+            val picture = extractCoverBytes(file) ?: return null
+            return try {
+                coverFile.writeBytes(picture)
+                Uri.fromFile(coverFile)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        fun getCoverUriForMediaItem(context: Context, mediaItem: MediaItem?): Uri? {
+            if (mediaItem == null) return null
+            val meta = mediaItem.mediaMetadata
+
+            // 1. 检查既有 artworkUri 在磁盘上是否有效存在
+            meta.artworkUri?.let { uri ->
+                val scheme = uri.scheme
+                if (scheme == "http" || scheme == "https") {
+                    return uri
+                }
+                val path = uri.path
+                if (!path.isNullOrBlank()) {
+                    val coverFile = File(path)
+                    if (coverFile.exists() && coverFile.length() > 0) {
+                        return uri
+                    }
+                }
+            }
+
+            // 2. 若既有 artworkUri 为空或磁盘文件被清理，根据 filePath 重新实时解包封面
+            val filePath = meta.extras?.getString("file_path")
+                ?: mediaItem.localConfiguration?.uri?.path
+            if (!filePath.isNullOrBlank()) {
+                return getCoverUriForFilePath(context, filePath)
+            }
+
+            return null
+        }
     }
 }

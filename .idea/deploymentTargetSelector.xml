@@ -4,7 +4,7 @@
     <selectionStates>
       <SelectionState runConfigName="wear">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-08-21T09:45:59.593669700Z">
+        <DropdownSelection timestamp="2026-10-03T02:34:52.877033700Z">
           <Target type="DEFAULT_BOOT">
             <handle>
               <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\kalil\.android\avd\Wear_OS_Small_Round.avd" />
@@ -15,7 +15,7 @@
       </SelectionState>
       <SelectionState runConfigName="mobile">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-08-19T09:34:39.791907Z">
+        <DropdownSelection timestamp="2026-08-28T01:30:23.151745600Z">
           <Target type="DEFAULT_BOOT">
             <handle>
               <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\kalil\.android\avd\Wear_OS_Small_Round.avd" />
