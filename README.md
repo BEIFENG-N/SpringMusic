@@ -46,7 +46,7 @@ SpringMusic 是一款专为 **Android Wear OS 智能手表** 打造的高颜值�
 ### 构建步骤
 1. 克隆本仓库：
    ```bash
-   git clone https://github.com/your-username/SpringMusic.git
+   git clone https://github.com/BEIFENG-N/SpringMusic.git
    cd SpringMusic
    ```
 2. 在 Android Studio 中打开项目，并同步 Gradle 依赖。
